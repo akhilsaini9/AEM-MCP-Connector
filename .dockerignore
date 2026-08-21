@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+.git
+.venv
+__pycache__
+.pytest_cache
+*.pyc
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+secrets/
+.codex/
+.agents/
+tests

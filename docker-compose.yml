@@ -1,0 +1,14 @@
+services:
+  aem-mcp:
+    build: .
+    env_file:
+      - .env
+    environment:
+      MCP_TRANSPORT: streamable-http
+      MCP_HOST: 0.0.0.0
+      AEM_BASE_URL: http://host.docker.internal:4502
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

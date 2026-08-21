@@ -1,0 +1,7 @@
+mcp[cli]>=2.0,<3
+httpx>=0.28,<1
+pydantic-settings>=2.10,<3
+python-dotenv>=1.0,<2
+pytest>=8,<9
+pytest-asyncio>=1,<2
+uvicorn>=0.30,<1
