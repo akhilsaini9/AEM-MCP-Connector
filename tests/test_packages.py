@@ -38,10 +38,58 @@ async def _no_csrf(_: Any) -> dict[str, str]:
     return {}
 
 
-def success_handler(request: httpx.Request) -> httpx.Response:
-    command = request.url.params.get("cmd")
-    message = "Package built" if command == "build" else "Package created" if command == "create" else "Package updated"
-    return httpx.Response(200, json={"success": True, "msg": message})
+class RepositoryHandler:
+    def __init__(self, *, existing: str | None = None, unrelated: bool = False, built: bool = False, legacy_create: bool = False, bad_filter_readback: bool = False, build_failure: bool = False) -> None:
+        self.packages: dict[str, dict[str, Any]] = {}
+        self.legacy_create = legacy_create
+        self.bad_filter_readback = bad_filter_readback
+        self.build_failure = build_failure
+        self.build_saw_verified_filter = False
+        if existing:
+            self.packages[existing] = {"name": "other" if unrelated else "backup", "group": "mcp", "version": "1.0.0" if not existing.endswith("/backup.zip") else "", "built": built, "filter": None}
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if request.method == "GET":
+            raw = path.removesuffix(".infinity.json")
+            for package_path, state in self.packages.items():
+                definition = f"{package_path}/jcr:content/vlt:definition"
+                if raw == definition:
+                    return httpx.Response(200, json={"name": state["name"], "group": state["group"], "version": state["version"]})
+                if raw == f"{package_path}/jcr:content":
+                    return httpx.Response(200, json={":jcr:data": 100 if state["built"] else 0})
+                if raw == f"{definition}/filter" and state["filter"] is not None:
+                    root = "/content/wrong" if self.bad_filter_readback else state["filter"]
+                    return httpx.Response(200, json={"jcr:primaryType": "nt:unstructured", "f0": {"jcr:primaryType": "nt:unstructured", "root": root}})
+            return httpx.Response(404)
+
+        data = dict(httpx.QueryParams(request.content.decode())) if request.content else {}
+        command = request.url.params.get("cmd")
+        if command == "create":
+            expected = "/etc/packages/mcp/backup-1.0.0.zip"
+            actual = "/etc/packages/mcp/backup.zip" if self.legacy_create else expected
+            self.packages[actual] = {"name": "backup", "group": "mcp", "version": "" if self.legacy_create else "1.0.0", "built": False, "filter": None}
+            return httpx.Response(200, json={"success": True, "msg": "Package created"})
+        if command == "build":
+            state = self.packages["/etc/packages/mcp/backup-1.0.0.zip"]
+            self.build_saw_verified_filter = state["filter"] == "/content/site" and not self.bad_filter_readback
+            if self.build_failure:
+                return httpx.Response(200, json={"success": False, "msg": "build failed"})
+            state["built"] = True
+            return httpx.Response(200, json={"success": True, "msg": "Package built"})
+        if data.get(":operation") == "move":
+            source = path
+            self.packages[data[":dest"]] = self.packages.pop(source)
+            return httpx.Response(200, text="moved")
+        for package_path, state in self.packages.items():
+            definition = f"{package_path}/jcr:content/vlt:definition"
+            if path == definition:
+                state.update(name=data["name"], group=data["group"], version=data["version"])
+            elif path == f"{definition}/filter" and data.get(":operation") == "delete":
+                state["filter"] = None
+            elif path == f"{definition}/filter/f0":
+                state["filter"] = data["root"]
+        return httpx.Response(200, text="persisted")
 
 
 @pytest.mark.asyncio
@@ -101,7 +149,7 @@ async def test_write_disabled_blocks_execution() -> None:
 
 @pytest.mark.asyncio
 async def test_confirm_false_blocks_execution_without_http() -> None:
-    package_service, requests = service(success_handler)
+    package_service, requests = service(RepositoryHandler())
     with pytest.raises(PermissionError, match="confirm=true"):
         await package_service.create("/content/site", "backup", dry_run=False, confirm=False)
     assert requests == []
@@ -109,46 +157,92 @@ async def test_confirm_false_blocks_execution_without_http() -> None:
 
 @pytest.mark.asyncio
 async def test_create_filter_and_build_success() -> None:
-    package_service, requests = service(success_handler)
+    handler = RepositoryHandler()
+    package_service, requests = service(handler)
     result = await package_service.create("/content/site", "backup", dry_run=False, confirm=True)
     assert result == {
         "packageName": "backup", "group": "mcp", "version": "1.0.0",
         "filterRoot": "/content/site", "packagePath": "/etc/packages/mcp/backup-1.0.0.zip",
         "built": True, "status": "Package built",
-        "downloadPath": "/etc/packages/mcp/backup-1.0.0.zip", "dryRun": False,
+        "downloadPath": "/etc/packages/mcp/backup-1.0.0.zip",
+        "downloadUrl": "http://aem.test/etc/packages/mcp/backup-1.0.0.zip", "dryRun": False,
     }
-    assert [request.url.params.get("cmd") for request in requests] == ["create", None, "build"]
-    filter_data = dict(httpx.QueryParams(requests[1].content.decode()))
-    assert json.loads(filter_data["filter"]) == [{"root": "/content/site", "rules": []}]
+    assert handler.packages[result["packagePath"]]["filter"] == "/content/site"
+    assert handler.build_saw_verified_filter is True
+    assert not any(request.url.path.endswith("update.jsp") for request in requests)
+
+
+def test_download_url_never_contains_configured_userinfo() -> None:
+    package_service, _ = service(aem_base_url="http://user:secret@aem.test:4502")
+    assert package_service._download_url("/etc/packages/mcp/backup.zip") == "http://aem.test:4502/etc/packages/mcp/backup.zip"
+
+
+@pytest.mark.asyncio
+async def test_update_jsp_404_is_irrelevant_when_repository_update_succeeds() -> None:
+    handler = RepositoryHandler()
+    package_service, requests = service(handler)
+    result = await package_service.create("/content/site", "backup", dry_run=False, confirm=True)
+    assert result["built"] is True
+    assert all(request.url.path != "/crx/packmgr/update.jsp" for request in requests)
+
+
+@pytest.mark.asyncio
+async def test_existing_half_created_package_resumes_safely() -> None:
+    expected = "/etc/packages/mcp/backup-1.0.0.zip"
+    handler = RepositoryHandler(existing=expected)
+    package_service, requests = service(handler)
+    result = await package_service.create("/content/site", "backup", dry_run=False, confirm=True)
+    assert result["built"] is True
+    assert handler.packages[expected]["filter"] == "/content/site"
+    assert not any(request.url.params.get("cmd") == "create" for request in requests)
+
+
+@pytest.mark.asyncio
+async def test_existing_legacy_half_created_package_is_normalized_and_resumed() -> None:
+    legacy = "/etc/packages/mcp/backup.zip"
+    expected = "/etc/packages/mcp/backup-1.0.0.zip"
+    handler = RepositoryHandler(existing=legacy)
+    package_service, requests = service(handler)
+    result = await package_service.create("/content/site", "backup", dry_run=False, confirm=True)
+    assert result["packagePath"] == expected
+    assert legacy not in handler.packages
+    assert handler.packages[expected]["version"] == "1.0.0"
+    assert any(dict(httpx.QueryParams(request.content.decode())).get(":operation") == "move" for request in requests if request.content)
 
 
 @pytest.mark.asyncio
 async def test_package_already_exists() -> None:
-    def handler(_: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"success": False, "msg": "Package already exists"})
+    handler = RepositoryHandler(existing="/etc/packages/mcp/backup-1.0.0.zip", unrelated=True)
     package_service, _ = service(handler)
-    with pytest.raises(FileExistsError, match="already exists"):
+    with pytest.raises(FileExistsError, match="unrelated"):
         await package_service.create("/content/site", "backup", dry_run=False, confirm=True)
 
 
 @pytest.mark.asyncio
 async def test_filter_update_failure_stops_before_build() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path.endswith("update.jsp"):
-            return httpx.Response(200, json={"success": False, "msg": "filter rejected"})
-        return httpx.Response(200, json={"success": True, "msg": "created"})
+    handler = RepositoryHandler(bad_filter_readback=True)
     package_service, requests = service(handler)
-    with pytest.raises(RuntimeError, match="filter update failed"):
+    with pytest.raises(RuntimeError, match="read-back"):
         await package_service.create("/content/site", "backup", dry_run=False, confirm=True)
-    assert len(requests) == 2
+    assert not any(request.url.params.get("cmd") == "build" for request in requests)
+
+
+@pytest.mark.asyncio
+async def test_repository_filter_update_transport_failure() -> None:
+    repository = RepositoryHandler()
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST" and request.url.path.endswith("/vlt:definition/filter/f0"):
+            return httpx.Response(500, text="failed")
+        return repository(request)
+    package_service, requests = service(handler)
+    with pytest.raises(RuntimeError, match="filter root creation failed: HTTP 500"):
+        await package_service.create("/content/site", "backup", dry_run=False, confirm=True)
+    assert not any(request.url.params.get("cmd") == "build" for request in requests)
 
 
 @pytest.mark.asyncio
 async def test_build_failure() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.params.get("cmd") == "build":
-            return httpx.Response(200, json={"success": False, "msg": "build failed"})
-        return httpx.Response(200, json={"success": True, "msg": "ok"})
+    handler = RepositoryHandler(build_failure=True)
     package_service, _ = service(handler)
     with pytest.raises(RuntimeError, match="build failed"):
         await package_service.create("/content/site", "backup", dry_run=False, confirm=True)
@@ -156,11 +250,11 @@ async def test_build_failure() -> None:
 
 @pytest.mark.asyncio
 async def test_create_without_build() -> None:
-    package_service, requests = service(success_handler)
+    package_service, requests = service(RepositoryHandler())
     result = await package_service.create("/content/site", "backup", build=False, dry_run=False, confirm=True)
     assert result["built"] is False
     assert result["status"] == "created"
-    assert len(requests) == 2
+    assert not any(request.url.params.get("cmd") == "build" for request in requests)
 
 
 @pytest.mark.asyncio
@@ -188,7 +282,7 @@ async def test_package_manager_500() -> None:
 @pytest.mark.asyncio
 async def test_package_audit_events(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.INFO, logger="aem_mcp.audit")
-    package_service, _ = service(success_handler)
+    package_service, _ = service(RepositoryHandler())
     await package_service.create("/content/site", "backup", dry_run=True)
     await package_service.create("/content/site", "backup", dry_run=False, confirm=True)
     events = {json.loads(record.message)["event"] for record in caplog.records}

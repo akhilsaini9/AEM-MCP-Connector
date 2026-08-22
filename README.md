@@ -790,3 +790,17 @@ Confirmed example:
 
 The AEM user configured by `AEM_USERNAME`/`AEM_PASSWORD` must have Package
 Manager permissions on `/etc/packages` and read access to the filter root.
+Filter persistence does not depend on `/crx/packmgr/update.jsp`. After create,
+the service uses guarded Sling POST operations on:
+
+```text
+/etc/packages/<group>/<name>-<version>.zip/jcr:content/vlt:definition
+/etc/packages/<group>/<name>-<version>.zip/jcr:content/vlt:definition/filter
+/etc/packages/<group>/<name>-<version>.zip/jcr:content/vlt:definition/filter/f0
+```
+
+`filter/f0` has `jcr:primaryType=nt:unstructured` and exactly one `root`
+property. The complete filter subtree and package identity are read back before
+build; build is refused if there is not exactly one root with no rules. A known
+unbuilt legacy `<name>.zip` produced by AEM's create servlet may be safely moved
+to the versioned path and resumed only when its definition identity matches.
