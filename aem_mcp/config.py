@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     aem_write_roots: str = "/content/mcp-poc"
     aem_component_allowed_resource_types: str = ""
     aem_publish_allowed_roots: str = ""
+    aem_package_allowed_roots: str = "/content,/content/dam,/conf"
     aem_dam_read_roots: str = "/content/dam"
     aem_dam_write_roots: str = "/content/dam"
     aem_max_asset_search_limit: int = 200
@@ -82,6 +83,10 @@ class Settings(BaseSettings):
     @property
     def publish_allowed_roots(self) -> tuple[str, ...]:
         return self._roots(self.aem_publish_allowed_roots) or self.write_roots
+
+    @property
+    def package_allowed_roots(self) -> tuple[str, ...]:
+        return self._roots(self.aem_package_allowed_roots)
 
     @property
     def dam_read_roots(self) -> tuple[str, ...]:

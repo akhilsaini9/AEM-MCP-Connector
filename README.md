@@ -764,3 +764,29 @@ audience, expiry, scopes, subject, and verified email. The raw Google bearer is
 not retained or forwarded. Only the validated subject is placed in MCP request
 context, keeping the downstream Adobe OAuth token store independent and
 per-subject.
+
+## Guarded AEM package creation
+
+`create_package` creates an AEM 6.5 CRX package definition for exactly one
+repository filter root and optionally builds it. It defaults to dry-run.
+Execution requires `AEM_WRITE_ENABLED=true`, `confirm=true`, and a path allowed
+by both `AEM_WRITE_ROOTS` and `AEM_PACKAGE_ALLOWED_ROOTS`.
+
+```dotenv
+AEM_PACKAGE_ALLOWED_ROOTS=/content,/content/dam,/conf
+```
+
+Dry-run example:
+
+```json
+{"path":"/content/mcp-poc/site","package_name":"site-backup","group":"mcp","version":"1.0.0","build":true,"dry_run":true,"confirm":false}
+```
+
+Confirmed example:
+
+```json
+{"path":"/content/mcp-poc/site","package_name":"site-backup","group":"mcp","version":"1.0.0","build":true,"dry_run":false,"confirm":true}
+```
+
+The AEM user configured by `AEM_USERNAME`/`AEM_PASSWORD` must have Package
+Manager permissions on `/etc/packages` and read access to the filter root.

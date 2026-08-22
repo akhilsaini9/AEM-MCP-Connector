@@ -8,6 +8,7 @@ from .services.asset_preview import AssetPreviewService
 from .services.authoring import AuthoringService
 from .services.dependencies import DependencyService, ValidationService
 from .services.publication import PublicationService
+from .services.packages import PackageManagerService
 from .adobe_mcp.errors import AdobeMCPError, AdobeMCPToolNotAvailableError
 from .adobe_mcp.sessions import adobe_mcp_sessions
 from .audit import audit_adobe_mcp
@@ -226,6 +227,22 @@ async def get_component_definition(resource_type: str) -> dict[str, Any]:
 async def list_allowed_components(container_path: str, limit: int = 200) -> dict[str, Any]:
     """Resolve components explicitly allowed by the authored container's content policy; returns warnings when exact policy resolution is unavailable."""
     return await AuthoringService(AEMClient()).allowed_components(container_path, limit)
+
+
+@mcp.tool()
+async def create_package(
+    path: str,
+    package_name: str,
+    group: str = "mcp",
+    version: str = "1.0.0",
+    build: bool = True,
+    dry_run: bool = True,
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Create an AEM CRX package for one guarded repository root, optionally building it. Defaults to dry-run; execution requires enabled writes and confirm=true."""
+    return await PackageManagerService(AEMClient()).create(
+        path, package_name, group, version, build, dry_run, confirm
+    )
 
 
 def _adobe_error(exc: AdobeMCPError) -> dict[str, Any]:

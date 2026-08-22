@@ -12,6 +12,18 @@ from .config import Settings
 logger = logging.getLogger("aem_mcp.audit")
 
 
+def audit_package_event(settings: Settings, event: str, **metadata: Any) -> None:
+    """Emit package lifecycle metadata; callers must never pass credentials/tokens."""
+    if not settings.mcp_audit_log_enabled:
+        return
+    level = getattr(logging, settings.mcp_audit_log_level.upper(), logging.INFO)
+    logger.log(level, json.dumps({
+        "event": event,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        **metadata,
+    }, separators=(",", ":")))
+
+
 def dry_run_result(operation: str, affected_paths: list[str], planned_changes: list[Any], warnings: list[str] | None = None, **extra: Any) -> dict[str, Any]:
     return {
         "operation": operation,
