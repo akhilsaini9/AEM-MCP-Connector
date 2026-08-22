@@ -29,6 +29,16 @@ class Settings(BaseSettings):
     mcp_path: str = "/mcp"
     mcp_http_auth_enabled: bool = True
     mcp_http_bearer_token: str = ""
+    # In explicit mode this supersedes MCP_HTTP_AUTH_ENABLED. An empty value
+    # preserves the legacy enabled=true -> static_bearer mapping.
+    mcp_auth_mode: str = ""
+    mcp_oauth_enabled: bool = False
+    mcp_oauth_issuer: str = "https://accounts.google.com"
+    mcp_oauth_client_id: str = ""
+    mcp_oauth_client_secret: str = ""
+    mcp_oauth_required_scopes: str = "openid,email,profile"
+    mcp_oauth_audience: str = ""
+    mcp_public_base_url: str = "http://127.0.0.1:8000"
     mcp_http_allowed_hosts: str = "127.0.0.1:*,localhost:*"
     mcp_http_allowed_origins: str = "http://127.0.0.1:*,http://localhost:*"
     mcp_http_max_body_bytes: int = 1_048_576
@@ -96,6 +106,19 @@ class Settings(BaseSettings):
     @property
     def http_allowed_origins(self) -> list[str]:
         return [value.strip() for value in self.mcp_http_allowed_origins.split(",") if value.strip()]
+
+    @property
+    def auth_mode(self) -> str:
+        mode = self.mcp_auth_mode.strip().lower()
+        if mode:
+            return mode
+        if self.mcp_oauth_enabled:
+            return "oauth"
+        return "static_bearer" if self.mcp_http_auth_enabled else "none"
+
+    @property
+    def oauth_required_scopes(self) -> tuple[str, ...]:
+        return tuple(value.strip() for value in self.mcp_oauth_required_scopes.split(",") if value.strip())
 
     @property
     def adobe_mcp_allowed_tool_names(self) -> frozenset[str]:

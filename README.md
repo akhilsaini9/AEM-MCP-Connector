@@ -731,3 +731,36 @@ present a callback URL to an end user.
 
 No existing Local AEM tool is routed through Adobe MCP, and no Cloud write tool is
 exposed by this POC.
+# ChatGPT-facing Google OIDC authentication
+
+HTTP authentication is selected with `MCP_AUTH_MODE=none|static_bearer|oauth`.
+When `MCP_AUTH_MODE` is omitted, the legacy `MCP_HTTP_AUTH_ENABLED` switch is
+still honored. In OAuth mode `/health` and OAuth discovery remain public while
+`/mcp` requires a Google bearer access or ID token.
+
+Production example (values are configuration, never commit secrets):
+
+```dotenv
+MCP_AUTH_MODE=oauth
+MCP_OAUTH_ENABLED=true
+MCP_PUBLIC_BASE_URL=https://aem-mcp-connector.onrender.com
+MCP_OAUTH_ISSUER=https://accounts.google.com
+MCP_OAUTH_CLIENT_ID=YOUR_GOOGLE_WEB_CLIENT_ID
+MCP_OAUTH_CLIENT_SECRET=YOUR_GOOGLE_WEB_CLIENT_SECRET
+MCP_OAUTH_AUDIENCE=YOUR_GOOGLE_WEB_CLIENT_ID
+MCP_OAUTH_REQUIRED_SCOPES=openid,email,profile
+```
+
+Protected-resource metadata is published at both the requested root location
+`/.well-known/oauth-protected-resource` and RFC 9728's path-aware location
+`/.well-known/oauth-protected-resource/mcp`. Advertised URLs are derived from
+`MCP_PUBLIC_BASE_URL` and `MCP_PATH`.
+
+Signed ID/JWT tokens are verified with Google's OIDC discovery document and
+rotating JWKS, including issuer, audience, time, subject, authorized-party,
+scope/claim, and verified-email checks. Google's normal opaque access tokens are
+validated online using Google's token-info and OIDC userinfo endpoints, including
+audience, expiry, scopes, subject, and verified email. The raw Google bearer is
+not retained or forwarded. Only the validated subject is placed in MCP request
+context, keeping the downstream Adobe OAuth token store independent and
+per-subject.
