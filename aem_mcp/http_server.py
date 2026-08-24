@@ -18,6 +18,8 @@ from .config import Settings, get_settings
 from .server import mcp
 from .adobe_mcp.errors import AdobeMCPError
 from .adobe_mcp.sessions import adobe_mcp_sessions
+from .adobe_cloud.errors import AdobeCloudError
+from .adobe_cloud import adobe_cloud_sessions
 from .oauth import (
     GoogleOIDCTokenVerifier,
     OAuthValidationError,
@@ -46,6 +48,21 @@ async def adobe_mcp_oauth_callback(request: Request) -> HTMLResponse:
         return HTMLResponse("Adobe authorization completed. You may close this window.")
     except AdobeMCPError:
         return HTMLResponse("Adobe authorization callback was invalid or expired.", status_code=400)
+
+
+@mcp.custom_route("/adobe-cloud/oauth/callback", methods=["GET"])
+async def adobe_cloud_oauth_callback(request: Request) -> HTMLResponse:
+    """Direct Adobe IMS callback; state is consumed before any token request."""
+    headers = {"Cache-Control": "no-store", "Pragma": "no-cache"}
+    try:
+        await adobe_cloud_sessions.complete_callback(
+            code=request.query_params.get("code", ""),
+            state=request.query_params.get("state", ""),
+            oauth_error=request.query_params.get("error"),
+        )
+        return HTMLResponse("Adobe AEM Cloud connection successful. You can return to ChatGPT.", headers=headers)
+    except AdobeCloudError:
+        return HTMLResponse("Adobe AEM Cloud connection failed. Return to ChatGPT and try again.", status_code=400, headers=headers)
 
 
 class BearerAuthAndLoggingMiddleware:

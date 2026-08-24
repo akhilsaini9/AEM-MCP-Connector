@@ -5,11 +5,30 @@ from datetime import datetime, timezone
 import json
 import logging
 import time
+import hashlib
 from typing import Any, AsyncIterator
 
 from .config import Settings
 
 logger = logging.getLogger("aem_mcp.audit")
+
+
+def audit_adobe_cloud(settings: Settings, event: str, session_key: str | None, *, success: bool, duration_ms: float, error_code: str | None = None) -> None:
+    """Emit only metadata for direct Adobe Cloud activity."""
+    if not settings.mcp_audit_log_enabled:
+        return
+    payload: dict[str, Any] = {
+        "event": event,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "success": success,
+        "duration_ms": round(duration_ms, 2),
+    }
+    if session_key:
+        payload["subject_hash"] = hashlib.sha256(session_key.encode()).hexdigest()[:16]
+    if error_code:
+        payload["error_code"] = error_code
+    level = getattr(logging, settings.mcp_audit_log_level.upper(), logging.INFO)
+    logger.log(level, json.dumps(payload, separators=(",", ":")))
 
 
 def audit_package_event(settings: Settings, event: str, **metadata: Any) -> None:

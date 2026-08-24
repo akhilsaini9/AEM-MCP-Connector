@@ -13,6 +13,8 @@ from .adobe_mcp.errors import AdobeMCPError, AdobeMCPToolNotAvailableError
 from .adobe_mcp.sessions import adobe_mcp_sessions
 from .audit import audit_adobe_mcp
 from .config import get_settings
+from .adobe_cloud.errors import AdobeCloudError
+from .adobe_cloud import adobe_cloud_sessions
 
 mcp = MCPServer(
     "custom-aem-crud",
@@ -313,3 +315,43 @@ async def list_aem_cloud_environments() -> dict[str, Any]:
             return {"upstream_tool": upstream, "result": result}
     except AdobeMCPError as exc:
         return _adobe_error(exc)
+
+
+def _adobe_cloud_error(exc: AdobeCloudError) -> dict[str, Any]:
+    return exc.safe_result()
+
+
+@mcp.tool()
+async def connect_aem_cloud() -> dict[str, Any]:
+    """Connect the current MCP user directly to Adobe IMS using OAuth Web App authentication."""
+    try:
+        return await adobe_cloud_sessions.connect()
+    except AdobeCloudError as exc:
+        return _adobe_cloud_error(exc)
+
+
+@mcp.tool()
+async def get_aem_cloud_connection_status() -> dict[str, Any]:
+    """Return safe direct Adobe AEM Cloud connection status for the current MCP user."""
+    try:
+        return await adobe_cloud_sessions.status()
+    except AdobeCloudError as exc:
+        return _adobe_cloud_error(exc)
+
+
+@mcp.tool()
+async def disconnect_aem_cloud() -> dict[str, Any]:
+    """Clear only the current MCP user's direct Adobe Cloud session."""
+    try:
+        return await adobe_cloud_sessions.disconnect()
+    except AdobeCloudError as exc:
+        return _adobe_cloud_error(exc)
+
+
+@mcp.tool()
+async def test_aem_cloud_connection() -> dict[str, Any]:
+    """Run the configured read-only AEM Cloud probe with the current user's Adobe token."""
+    try:
+        return await adobe_cloud_sessions.test_connection()
+    except AdobeCloudError as exc:
+        return _adobe_cloud_error(exc)

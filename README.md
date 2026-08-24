@@ -804,3 +804,57 @@ property. The complete filter subtree and package identity are read back before
 build; build is refused if there is not exactly one root with no rules. A known
 unbuilt legacy `<name>.zip` produced by AEM's create servlet may be safely moved
 to the versioned path and resumed only when its definition identity matches.
+
+## Direct Adobe AEM Cloud OAuth
+
+This is a separate integration and **does not use Adobe's official AEM MCP**:
+
+```text
+ChatGPT
+ -> Google OAuth
+ -> Custom MCP
+ -> Adobe IMS OAuth Web App
+ -> AEM Cloud APIs
+```
+
+The Adobe Developer Console credential type is **OAuth User Authentication / Web
+App**. Technical accounts, server-to-server credentials, and local development
+tokens are not used. The exact registered callback is:
+
+```text
+https://aem-mcp-connector.onrender.com/adobe-cloud/oauth/callback
+```
+
+Required Render configuration (the client secret must be stored only as a secret
+environment variable):
+
+```env
+ADOBE_CLOUD_ENABLED=false
+ADOBE_CLOUD_CLIENT_ID=
+ADOBE_CLOUD_CLIENT_SECRET=
+ADOBE_CLOUD_REDIRECT_URI=https://aem-mcp-connector.onrender.com/adobe-cloud/oauth/callback
+ADOBE_CLOUD_AUTHORIZATION_ENDPOINT=https://ims-na1.adobelogin.com/ims/authorize/v2
+ADOBE_CLOUD_TOKEN_ENDPOINT=https://ims-na1.adobelogin.com/ims/token/v3
+ADOBE_CLOUD_USERINFO_ENDPOINT=https://ims-na1.adobelogin.com/ims/userinfo/v2
+ADOBE_CLOUD_SCOPES=
+ADOBE_CLOUD_SESSION_STORE=memory
+AEM_CLOUD_AUTHOR_URL=
+AEM_CLOUD_TEST_PATH=
+```
+
+Configure only scopes supported by the Adobe Developer Console project; this
+project deliberately does not guess them. Tokens are stored per verified outer MCP
+user and are never returned by tools. The memory store is a POC implementation: it
+is lost on restart and is unsuitable for multiple Render replicas until replaced by
+an encrypted shared Redis/Postgres store.
+
+Environment discovery is not implemented in this phase. `AEM_CLOUD_AUTHOR_URL` may
+be set manually. The read-only connection test does not guess an AEM endpoint: set
+`AEM_CLOUD_TEST_PATH` only to a supported path verified for the target environment,
+or it reports `oauth_connected_probe_not_configured`. Migration of existing AEM
+tools to an AdobeCloudProvider is planned for a later phase.
+
+The four direct tools are `connect_aem_cloud`,
+`get_aem_cloud_connection_status`, `disconnect_aem_cloud`, and
+`test_aem_cloud_connection`. They do not alter the local AEM tools or the separate
+`ADOBE_MCP_*` downstream integration.

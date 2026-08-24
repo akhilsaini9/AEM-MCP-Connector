@@ -65,8 +65,10 @@ async def test_stdio_tools_still_load() -> None:
         "list_aem_cloud_environments",
     }
     assert adobe_poc <= names
+    direct_cloud = {"connect_aem_cloud", "get_aem_cloud_connection_status", "disconnect_aem_cloud", "test_aem_cloud_connection"}
+    assert direct_cloud <= names
     assert "create_package" in names
-    assert len(names) == 35
+    assert len(names) == 39
 
 
 def test_http_tool_listing_includes_asset_preview() -> None:

@@ -1,5 +1,7 @@
 from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import model_validator
+from urllib.parse import urlsplit
 
 class Settings(BaseSettings):
     aem_base_url: str = "http://localhost:4502"
@@ -58,7 +60,45 @@ class Settings(BaseSettings):
     adobe_mcp_environments_tool: str = ""
     adobe_mcp_connect_timeout_seconds: float = 30.0
 
+    # Direct Adobe IMS OAuth Web App integration. This is deliberately separate
+    # from the downstream Adobe-hosted MCP integration above.
+    adobe_cloud_enabled: bool = False
+    adobe_cloud_client_id: str = ""
+    adobe_cloud_client_secret: str = ""
+    adobe_cloud_redirect_uri: str = "https://aem-mcp-connector.onrender.com/adobe-cloud/oauth/callback"
+    adobe_cloud_authorization_endpoint: str = "https://ims-na1.adobelogin.com/ims/authorize/v2"
+    adobe_cloud_token_endpoint: str = "https://ims-na1.adobelogin.com/ims/token/v3"
+    adobe_cloud_userinfo_endpoint: str = "https://ims-na1.adobelogin.com/ims/userinfo/v2"
+    adobe_cloud_scopes: str = ""
+    adobe_cloud_session_store: str = "memory"
+    aem_cloud_author_url: str = ""
+    aem_cloud_test_path: str = ""
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @model_validator(mode="after")
+    def validate_adobe_cloud(self) -> "Settings":
+        if self.adobe_cloud_enabled:
+            if not self.adobe_cloud_client_id.strip():
+                raise ValueError("ADOBE_CLOUD_CLIENT_ID is required when Adobe Cloud is enabled.")
+            if not self.adobe_cloud_client_secret.strip():
+                raise ValueError("ADOBE_CLOUD_CLIENT_SECRET is required when Adobe Cloud is enabled.")
+            redirect = urlsplit(self.adobe_cloud_redirect_uri)
+            local_http = redirect.scheme == "http" and redirect.hostname in {"localhost", "127.0.0.1", "::1"}
+            if redirect.scheme != "https" and not local_http:
+                raise ValueError("ADOBE_CLOUD_REDIRECT_URI must use HTTPS outside local development.")
+        for name, value in (
+            ("ADOBE_CLOUD_AUTHORIZATION_ENDPOINT", self.adobe_cloud_authorization_endpoint),
+            ("ADOBE_CLOUD_TOKEN_ENDPOINT", self.adobe_cloud_token_endpoint),
+            ("ADOBE_CLOUD_USERINFO_ENDPOINT", self.adobe_cloud_userinfo_endpoint),
+        ):
+            if urlsplit(value).scheme != "https":
+                raise ValueError(f"{name} must use HTTPS.")
+        if self.adobe_cloud_session_store.strip().lower() != "memory":
+            raise ValueError("Only ADOBE_CLOUD_SESSION_STORE=memory is currently supported.")
+        if self.aem_cloud_author_url.strip() and urlsplit(self.aem_cloud_author_url).scheme != "https":
+            raise ValueError("AEM_CLOUD_AUTHOR_URL must use HTTPS when configured.")
+        return self
 
     @staticmethod
     def _roots(raw: str) -> tuple[str, ...]:
@@ -130,6 +170,10 @@ class Settings(BaseSettings):
         return frozenset(
             value.strip() for value in self.adobe_mcp_allowed_tools.split(",") if value.strip()
         )
+
+    @property
+    def adobe_cloud_scope_names(self) -> tuple[str, ...]:
+        return tuple(value.strip() for value in self.adobe_cloud_scopes.replace(",", " ").split() if value.strip())
 
 @lru_cache
 def get_settings() -> Settings:
