@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Any
 from mcp.server import MCPServer
 from mcp.types import CallToolResult
-from .aem_client import AEMClient
+from .aem_client import AEMClient as _AEMClient
 from .services.assets import AssetService
 from .services.asset_preview import AssetPreviewService
 from .services.authoring import AuthoringService
@@ -15,6 +15,21 @@ from .audit import audit_adobe_mcp
 from .config import get_settings
 from .adobe_cloud.errors import AdobeCloudError
 from .adobe_cloud import adobe_cloud_sessions
+from .providers.factory import get_aem_provider, require_local_runtime
+from .providers.errors import AEMProviderError
+
+
+def AEMClient() -> _AEMClient:
+    """Construct the legacy client only when local runtime is explicitly selected."""
+    require_local_runtime()
+    return _AEMClient()
+
+
+async def _provider_call(method: str, *args: Any) -> dict[str, Any]:
+    try:
+        return await getattr(get_aem_provider(), method)(*args)
+    except AEMProviderError as exc:
+        return exc.safe_result()
 
 mcp = MCPServer(
     "custom-aem-crud",
@@ -28,7 +43,7 @@ mcp = MCPServer(
 @mcp.tool()
 async def get_page_properties(path: str) -> dict[str, Any]:
     """Return direct jcr:content properties for one AEM page."""
-    return await AEMClient().get_page_properties(path)
+    return await _provider_call("get_page_properties", path)
 
 @mcp.tool()
 async def search_pages(
@@ -43,7 +58,7 @@ async def search_pages(
 @mcp.tool()
 async def list_child_pages(root: str, limit: int = 50) -> dict[str, Any]:
     """List direct child cq:Page nodes."""
-    return await AEMClient().list_child_pages(root, limit)
+    return await _provider_call("list_child_pages", root, limit)
 
 @mcp.tool()
 async def find_component_usage(
@@ -52,19 +67,19 @@ async def find_component_usage(
     limit: int = 50,
 ) -> dict[str, Any]:
     """Find repository nodes using a specific sling:resourceType."""
-    return await AEMClient().find_component_usage(root, resource_type, limit)
+    return await _provider_call("find_component_usage", root, resource_type, limit)
 
 @mcp.tool()
 async def list_components(
     page_path: str, max_depth: int = 10, limit: int = 200
 ) -> dict[str, Any]:
     """Recursively list components below a page's jcr:content."""
-    return await AEMClient().list_components(page_path, max_depth, limit)
+    return await _provider_call("list_components", page_path, max_depth, limit)
 
 @mcp.tool()
 async def get_component_properties(component_path: str) -> dict[str, Any]:
     """Return direct, bounded properties for an exact component path."""
-    return await AEMClient().get_component_properties(component_path)
+    return await _provider_call("get_component_properties", component_path)
 
 @mcp.tool()
 async def find_components(
@@ -176,17 +191,17 @@ async def validate_page(page_path: str) -> dict[str, Any]:
 @mcp.tool()
 async def search_assets(root: str = "/content/dam", text: str | None = None, mime_type: str | None = None, limit: int = 50, offset: int = 0) -> dict[str, Any]:
     """Search AEM DAM under an allowed root using text and optional MIME filters. This is read-only and bounded."""
-    return await AssetService(AEMClient()).search(root, text, mime_type, limit, offset)
+    return await _provider_call("search_assets", root, text, mime_type, limit, offset)
 
 @mcp.tool()
 async def get_asset_metadata(asset_path: str) -> dict[str, Any]:
     """Return bounded, sanitized metadata and inexpensive rendition information for one readable AEM DAM asset."""
-    return await AssetService(AEMClient()).metadata(asset_path)
+    return await _provider_call("get_asset_metadata", asset_path)
 
 @mcp.tool(structured_output=False)
 async def get_asset_preview(asset_path: str, rendition: str | None = None, max_bytes: int | None = None) -> CallToolResult:
     """Retrieve a safe preview of an AEM DAM image or PDF. Uses a web-friendly rendition where possible and never exposes AEM credentials."""
-    return await AssetPreviewService(AEMClient()).preview(asset_path, rendition, max_bytes)
+    return await get_aem_provider().get_asset_preview(asset_path, rendition, max_bytes)
 
 @mcp.tool()
 async def upload_asset(dam_folder: str, file_name: str, content_base64: str, mime_type: str | None = None, metadata: dict[str, Any] | None = None, overwrite: bool = False, dry_run: bool = True, confirm: bool = False) -> dict[str, Any]:
@@ -218,7 +233,7 @@ async def unpublish_asset(asset_path: str, dry_run: bool = True, confirm: bool =
 @mcp.tool()
 async def get_component_authoring_schema(resource_type: str) -> dict[str, Any]:
     """Inspect a component cq:dialog and inherited resource-super-type dialogs to return normalized fields visible to an AEM author."""
-    return await AuthoringService(AEMClient()).schema(resource_type)
+    return await _provider_call("get_component_authoring_schema", resource_type)
 
 @mcp.tool()
 async def get_component_definition(resource_type: str) -> dict[str, Any]:
@@ -228,7 +243,7 @@ async def get_component_definition(resource_type: str) -> dict[str, Any]:
 @mcp.tool()
 async def list_allowed_components(container_path: str, limit: int = 200) -> dict[str, Any]:
     """Resolve components explicitly allowed by the authored container's content policy; returns warnings when exact policy resolution is unavailable."""
-    return await AuthoringService(AEMClient()).allowed_components(container_path, limit)
+    return await _provider_call("list_allowed_components", container_path, limit)
 
 
 @mcp.tool()

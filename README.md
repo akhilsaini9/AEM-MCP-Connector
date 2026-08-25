@@ -858,3 +858,12 @@ The four direct tools are `connect_aem_cloud`,
 `get_aem_cloud_connection_status`, `disconnect_aem_cloud`, and
 `test_aem_cloud_connection`. They do not alter the local AEM tools or the separate
 `ADOBE_MCP_*` downstream integration.
+
+### Phase 1 provider runtime
+
+`AEM_RUNTIME_MODE=local|cloud` selects the backend for ten existing read tools;
+`local` is the default and preserves all existing Local SDK behavior. Cloud mode
+uses the current Google-authenticated MCP subject's direct Adobe IMS session and
+never falls back to local AEM. Non-migrated operations fail closed in cloud mode.
+The migrated operations, API stability, headers, resolver behavior, and known
+parity differences are documented in `docs/adobe_cloud_phase1.md`.

@@ -1,0 +1,23 @@
+from __future__ import annotations
+
+from typing import Any
+from mcp.types import CallToolResult
+from ..aem_client import AEMClient
+from ..services.assets import AssetService
+from ..services.asset_preview import AssetPreviewService
+from ..services.authoring import AuthoringService
+
+
+class LocalAEMProvider:
+    """Thin adapter; all existing local behavior stays in current clients/services."""
+    def _client(self) -> AEMClient: return AEMClient()
+    async def get_page_properties(self, path: str) -> dict[str, Any]: return await self._client().get_page_properties(path)
+    async def list_child_pages(self, root: str, limit: int = 50) -> dict[str, Any]: return await self._client().list_child_pages(root, limit)
+    async def find_component_usage(self, root: str, resource_type: str, limit: int = 50) -> dict[str, Any]: return await self._client().find_component_usage(root, resource_type, limit)
+    async def list_components(self, page_path: str, max_depth: int = 10, limit: int = 200) -> dict[str, Any]: return await self._client().list_components(page_path, max_depth, limit)
+    async def get_component_properties(self, component_path: str) -> dict[str, Any]: return await self._client().get_component_properties(component_path)
+    async def get_component_authoring_schema(self, resource_type: str) -> dict[str, Any]: return await AuthoringService(self._client()).schema(resource_type)
+    async def list_allowed_components(self, container_path: str, limit: int = 200) -> dict[str, Any]: return await AuthoringService(self._client()).allowed_components(container_path, limit)
+    async def search_assets(self, root: str = "/content/dam", text: str | None = None, mime_type: str | None = None, limit: int = 50, offset: int = 0) -> dict[str, Any]: return await AssetService(self._client()).search(root, text, mime_type, limit, offset)
+    async def get_asset_metadata(self, asset_path: str) -> dict[str, Any]: return await AssetService(self._client()).metadata(asset_path)
+    async def get_asset_preview(self, asset_path: str, rendition: str | None = None, max_bytes: int | None = None) -> CallToolResult: return await AssetPreviewService(self._client()).preview(asset_path, rendition, max_bytes)
