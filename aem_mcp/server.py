@@ -15,14 +15,21 @@ from .audit import audit_adobe_mcp
 from .config import get_settings
 from .adobe_cloud.errors import AdobeCloudError
 from .adobe_cloud import adobe_cloud_sessions
-from .providers.factory import get_aem_provider, require_local_runtime
+from .providers.factory import get_aem_provider, get_repository_aem_client
 from .providers.errors import AEMProviderError
 
 
 def AEMClient() -> _AEMClient:
-    """Construct the legacy client only when local runtime is explicitly selected."""
-    require_local_runtime()
-    return _AEMClient()
+    """Construct the authoritative repository client; OpenAPI mode fails closed."""
+    return get_repository_aem_client()
+
+
+def _cloud_direct_unsupported(operation: str) -> dict[str, Any] | None:
+    settings = get_settings()
+    if settings.aem_runtime_mode.strip().lower() == "cloud" and settings.aem_cloud_provider_mode.strip().lower() == "direct_http":
+        return {"success": False, "error": "unsupported_in_cloud_direct_mode", "operation": operation,
+                "message": "This operation has no verified AEMaaCS direct HTTP implementation."}
+    return None
 
 
 async def _provider_call(method: str, *args: Any) -> dict[str, Any]:
@@ -171,12 +178,12 @@ async def delete_page(
 @mcp.tool()
 async def publish_page(page_path: str, include_references: bool = False, dry_run: bool = True, confirm: bool = False) -> dict[str, Any]:
     """Publish an AEM page after bounded impact analysis. Defaults to dry-run; actual publication requires dry_run=false and confirm=true."""
-    return await PublicationService(AEMClient()).page(page_path, "Activate", include_references, dry_run, confirm)
+    return _cloud_direct_unsupported("publish_page") or await PublicationService(AEMClient()).page(page_path, "Activate", include_references, dry_run, confirm)
 
 @mcp.tool()
 async def unpublish_page(page_path: str, dry_run: bool = True, confirm: bool = False) -> dict[str, Any]:
     """Unpublish an AEM page after impact analysis. Defaults to dry-run; actual unpublication requires dry_run=false and confirm=true."""
-    return await PublicationService(AEMClient()).page(page_path, "Deactivate", False, dry_run, confirm)
+    return _cloud_direct_unsupported("unpublish_page") or await PublicationService(AEMClient()).page(page_path, "Deactivate", False, dry_run, confirm)
 
 @mcp.tool()
 async def get_page_dependencies(page_path: str, limit: int = 500) -> dict[str, Any]:
@@ -206,7 +213,7 @@ async def get_asset_preview(asset_path: str, rendition: str | None = None, max_b
 @mcp.tool()
 async def upload_asset(dam_folder: str, file_name: str, content_base64: str, mime_type: str | None = None, metadata: dict[str, Any] | None = None, overwrite: bool = False, dry_run: bool = True, confirm: bool = False) -> dict[str, Any]:
     """Upload base64 content to local AEM DAM through an isolated strategy. Defaults to dry-run; validates size/MIME/name and requires confirmation."""
-    return await AssetService(AEMClient()).upload(dam_folder, file_name, content_base64, mime_type, metadata, overwrite, dry_run, confirm)
+    return _cloud_direct_unsupported("upload_asset") or await AssetService(AEMClient()).upload(dam_folder, file_name, content_base64, mime_type, metadata, overwrite, dry_run, confirm)
 
 @mcp.tool()
 async def find_asset_usage(asset_path: str, root: str | None = None, limit: int = 100) -> dict[str, Any]:
@@ -221,12 +228,16 @@ async def update_asset_metadata(asset_path: str, properties: dict[str, Any], dry
 @mcp.tool()
 async def publish_asset(asset_path: str, dry_run: bool = True, confirm: bool = False) -> dict[str, Any]:
     """Publish an AEM DAM asset after usage impact analysis. Defaults to dry-run; actual publication requires confirmation."""
+    unsupported = _cloud_direct_unsupported("publish_asset")
+    if unsupported: return unsupported
     client=AEMClient(); usages=(await AssetService(client).usage(asset_path, limit=100))["usages"]
     return await PublicationService(client).asset(asset_path, "Activate", dry_run, confirm, usages)
 
 @mcp.tool()
 async def unpublish_asset(asset_path: str, dry_run: bool = True, confirm: bool = False) -> dict[str, Any]:
     """Unpublish an AEM DAM asset after usage impact analysis. Defaults to dry-run; actual unpublication requires confirmation."""
+    unsupported = _cloud_direct_unsupported("unpublish_asset")
+    if unsupported: return unsupported
     client=AEMClient(); usages=(await AssetService(client).usage(asset_path, limit=100))["usages"]
     return await PublicationService(client).asset(asset_path, "Deactivate", dry_run, confirm, usages)
 
@@ -257,6 +268,9 @@ async def create_package(
     confirm: bool = False,
 ) -> dict[str, Any]:
     """Create an AEM CRX package for one guarded repository root, optionally building it. Defaults to dry-run; execution requires enabled writes and confirm=true."""
+    if not dry_run:
+        unsupported = _cloud_direct_unsupported("create_package")
+        if unsupported: return unsupported
     return await PackageManagerService(AEMClient()).create(
         path, package_name, group, version, build, dry_run, confirm
     )

@@ -36,7 +36,8 @@ class PackageManagerService:
         return normalized
 
     def _download_url(self, package_path: str) -> str:
-        parsed = urlsplit(self.settings.aem_base_url.rstrip("/"))
+        configured_url = self.client.base_url if self.client.transport.cloud_direct else self.settings.aem_base_url
+        parsed = urlsplit(configured_url.rstrip("/"))
         host = parsed.hostname or ""
         if parsed.port:
             host = f"{host}:{parsed.port}"

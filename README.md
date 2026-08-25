@@ -867,3 +867,12 @@ uses the current Google-authenticated MCP subject's direct Adobe IMS session and
 never falls back to local AEM. Non-migrated operations fail closed in cloud mode.
 The migrated operations, API stability, headers, resolver behavior, and known
 parity differences are documented in `docs/adobe_cloud_phase1.md`.
+# Runtime modes
+
+The repository supports three explicit operational modes:
+
+- Local SDK: `AEM_RUNTIME_MODE=local` uses the existing `AEM_BASE_URL` and Basic Auth behavior.
+- AEM Cloud OpenAPI: `AEM_RUNTIME_MODE=cloud` plus `AEM_CLOUD_PROVIDER_MODE=openapi` (the default) retains the existing per-user Adobe IMS OAuth and Page/Assets OpenAPI provider.
+- AEM Cloud Direct HTTP POC: `AEM_RUNTIME_MODE=cloud`, `AEM_CLOUD_PROVIDER_MODE=direct_http`, `AEM_CLOUD_DIRECT_AUTH_MODE=local_token`, `AEM_CLOUD_AUTHOR_URL=<HTTPS author origin>`, and `AEM_CLOUD_LOCAL_TOKEN=<secret>` reuse Sling JSON, QueryBuilder, Sling POST, DAM repository, and repository authoring semantics.
+
+Local Development Tokens expire and are only for development/testing. In direct mode the outer Google-authenticated users share the configured token, and AEM sees the Adobe identity that generated it. Users do not run `connect_aem_cloud`; those connection tools belong to OpenAPI mode. The production direction is AEM Technical Account / Service Credentials replacing only token acquisition, not repository operations. See [the direct HTTP guide](docs/aem_cloud_direct_http.md).

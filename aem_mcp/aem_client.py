@@ -7,7 +7,8 @@ import base64
 import re
 import httpx
 
-from .config import get_settings
+from .config import Settings, get_settings
+from .http_transport import AEMHttpTransport
 
 
 @dataclass(frozen=True)
@@ -23,8 +24,10 @@ class BinaryTooLargeError(ValueError):
 class AEMClient:
     """HTTP wrapper around a local AEM Author SDK with guarded CRUD support."""
 
-    def __init__(self) -> None:
-        self.settings = get_settings()
+    def __init__(self, transport: AEMHttpTransport | None = None, settings: Settings | None = None) -> None:
+        self.settings = settings or get_settings()
+        self.transport = transport or AEMHttpTransport.local(self.settings)
+        self.base_url = self.transport.base_url
 
     def _normalize_path(self, path: str) -> str:
         if not path.startswith("/"):
@@ -431,14 +434,7 @@ class AEMClient:
         return {"updated": True, **final}
 
     def _client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(
-            base_url=self.settings.aem_base_url.rstrip("/"),
-            auth=(self.settings.aem_username, self.settings.aem_password),
-            timeout=self.settings.aem_timeout_seconds,
-            verify=self.settings.aem_verify_ssl,
-            follow_redirects=True,
-            headers={"Accept": "application/json"},
-        )
+        return self.transport.client()
 
     async def _csrf_headers(self, client: httpx.AsyncClient) -> dict[str, str]:
         """
@@ -452,8 +448,14 @@ class AEMClient:
                 token = (r.json() or {}).get("token")
                 if token:
                     return {"CSRF-Token": token}
-        except Exception:
-            pass
+        except Exception as exc:
+            if self.transport.strict_csrf:
+                from .providers.errors import AEMProviderError
+                if isinstance(exc, AEMProviderError):
+                    raise
+                raise RuntimeError("cloud_direct_csrf_failed")
+        if self.transport.strict_csrf:
+            raise RuntimeError("cloud_direct_csrf_token_missing")
         return {}
 
     async def _post_form(self, path: str, data: dict[str, Any]) -> dict[str, Any]:
@@ -461,9 +463,7 @@ class AEMClient:
             headers = await self._csrf_headers(client)
             r = await client.post(path, data=data, headers=headers)
             if not r.is_success:
-                raise RuntimeError(
-                    f"AEM POST failed: HTTP {r.status_code}: {r.text[:1000]}"
-                )
+                raise RuntimeError(f"AEM POST failed: HTTP {r.status_code}")
             content_type = r.headers.get("content-type", "")
             if "json" in content_type:
                 return r.json()

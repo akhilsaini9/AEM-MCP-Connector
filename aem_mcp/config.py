@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     adobe_cloud_scopes: str = ""
     adobe_cloud_session_store: str = "memory"
     aem_cloud_author_url: str = ""
+    aem_cloud_provider_mode: str = "openapi"
+    aem_cloud_direct_auth_mode: str = "local_token"
+    aem_cloud_local_token: str = ""
     aem_cloud_test_path: str = ""
     # Page Management is experimental. Keep its verified API root/version
     # replaceable without exposing either through MCP tool contracts.
@@ -83,11 +86,16 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_adobe_cloud(self) -> "Settings":
-        if self.aem_runtime_mode.strip().lower() not in {"local", "cloud"}:
+        runtime = self.aem_runtime_mode.strip().lower()
+        provider = self.aem_cloud_provider_mode.strip().lower()
+        direct_auth = self.aem_cloud_direct_auth_mode.strip().lower()
+        if runtime not in {"local", "cloud"}:
             raise ValueError("AEM_RUNTIME_MODE must be local or cloud.")
-        if self.aem_runtime_mode.strip().lower() == "cloud" and not self.adobe_cloud_enabled:
-            raise ValueError("ADOBE_CLOUD_ENABLED=true is required when AEM_RUNTIME_MODE=cloud.")
-        if self.adobe_cloud_enabled:
+        if provider not in {"openapi", "direct_http"}:
+            raise ValueError("AEM_CLOUD_PROVIDER_MODE must be openapi or direct_http.")
+        if runtime == "cloud" and provider == "openapi" and not self.adobe_cloud_enabled:
+            raise ValueError("ADOBE_CLOUD_ENABLED=true is required for cloud OpenAPI mode.")
+        if self.adobe_cloud_enabled and not (runtime == "cloud" and provider == "direct_http"):
             if not self.adobe_cloud_client_id.strip():
                 raise ValueError("ADOBE_CLOUD_CLIENT_ID is required when Adobe Cloud is enabled.")
             if not self.adobe_cloud_client_secret.strip():
@@ -111,8 +119,13 @@ class Settings(BaseSettings):
                 raise ValueError("AEM_CLOUD_AUTHOR_URL must use HTTPS when configured.")
             if not author.hostname or author.path not in {"", "/"} or author.query or author.fragment or author.username or author.password:
                 raise ValueError("AEM_CLOUD_AUTHOR_URL must be an HTTPS origin without path, query, fragment, or userinfo.")
-        elif self.aem_runtime_mode.strip().lower() == "cloud":
+        elif runtime == "cloud":
             raise ValueError("AEM_CLOUD_AUTHOR_URL is required when AEM_RUNTIME_MODE=cloud.")
+        if runtime == "cloud" and provider == "direct_http":
+            if direct_auth != "local_token":
+                raise ValueError("AEM_CLOUD_DIRECT_AUTH_MODE must be local_token.")
+            if not self.aem_cloud_local_token.strip():
+                raise ValueError("AEM_CLOUD_LOCAL_TOKEN is required for cloud direct HTTP mode.")
         for name, path in (("AEM_CLOUD_PAGES_API_PATH", self.aem_cloud_pages_api_path), ("AEM_CLOUD_ASSETS_API_PATH", self.aem_cloud_assets_api_path)):
             if not path.startswith("/") or "//" in path or ".." in path.split("/") or "?" in path or "#" in path:
                 raise ValueError(f"{name} must be a safe origin-relative path.")
